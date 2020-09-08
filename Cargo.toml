@@ -22,6 +22,7 @@ serde = { version = "1.0.14", default-features = false }
 
 [dev-dependencies]
 serde_derive = { version = "1.0.14", default-features = false }
+criterion = "0.3"
 
 [features]
 default = ["std"]
@@ -31,3 +32,8 @@ alloc = ["serde/alloc"]
 std = ["serde/std" ]
 unsealed_read_write = []
 tags = []
+
+[[bench]]
+name = "lazy"
+harness = false
+

@@ -133,6 +133,9 @@ pub struct Deserializer<R> {
     accept_packed: bool,
     accept_standard_enums: bool,
     accept_legacy_enums: bool,
+    depth: u8,
+    ///
+    pub whitelist: Vec<&'static str>,
 }
 
 #[cfg(feature = "std")]
@@ -191,7 +194,13 @@ where
             accept_packed: true,
             accept_standard_enums: true,
             accept_legacy_enums: true,
+            depth: 0,
+            whitelist: Vec::new(),
         }
+    }
+
+    fn whitelist(&self) -> Option<&str> {
+        self.whitelist.get(self.depth as usize - 1).map(|s| *s)
     }
 
     /// Don't accept named variants and fields.
@@ -426,12 +435,14 @@ where
     where
         F: FnOnce(&mut Deserializer<R>) -> Result<T>,
     {
+        self.depth += 1;
         self.remaining_depth -= 1;
         if self.remaining_depth == 0 {
             return Err(self.error(ErrorCode::RecursionLimitExceeded));
         }
         let r = f(self);
         self.remaining_depth += 1;
+        self.depth -= 1;
         r
     }
 
@@ -574,6 +585,36 @@ where
 
     fn parse_f64(&mut self) -> Result<f64> {
         self.parse_u64().map(|i| f64::from_bits(i))
+    }
+
+    fn peek_text_bytes(&self) -> Result<Option<&[u8]>> {
+        let byte = self.read.long_peek(1)?[0];
+        
+        Ok(Some(match byte {
+            // Major type 3: a text string
+            0x60..=0x77 => &self.read.long_peek(1 + byte as usize - 0x60)?[1..],
+            0x78 => {
+                let len = self.read.long_peek(1 + 1)?[1];
+                &self.read.long_peek(1 + 1 + len as usize)?[2..]
+            }
+            // 0x79 => {
+            //     let len = self.parse_u16()?;
+            //     self.parse_str(len as usize, visitor)
+            // }
+            // 0x7a => {
+            //     let len = self.parse_u32()?;
+            //     self.parse_str(len as usize, visitor)
+            // }
+            // 0x7b => {
+            //     let len = self.parse_u64()?;
+            //     if len > usize::max_value() as u64 {
+            //         return Err(self.error(ErrorCode::LengthOutOfRange));
+            //     }
+            //     self.parse_str(len as usize, visitor)
+            // }
+
+            _ => return Ok(None),
+        }))
     }
 
     // Don't warn about the `unreachable!` in case
@@ -989,20 +1030,34 @@ where
     where
         K: de::DeserializeSeed<'de>,
     {
-        if *self.len == 0 {
-            return Ok(None);
-        }
-        *self.len -= 1;
+        loop {
+            if *self.len == 0 {
+                return Ok(None);
+            }
+            *self.len -= 1;
 
-        match self.de.peek()? {
-            Some(_byte @ 0x00..=0x1b) if !self.accept_packed => {
-                return Err(self.de.error(ErrorCode::WrongStructFormat));
+
+            match self.de.peek()? {
+                Some(_byte @ 0x00..=0x1b) if !self.accept_packed => {
+                    return Err(self.de.error(ErrorCode::WrongStructFormat));
+                }
+                Some(_byte @ 0x60..=0x7f) if !self.accept_named => {
+                    return Err(self.de.error(ErrorCode::WrongStructFormat));
+                }
+                _ => {}
+            };
+            
+            if let Some(w) = self.de.whitelist() {
+                if let Some(s) = self.de.peek_text_bytes()? {
+                    if s != w.as_bytes() {
+                        let _key = <serde::de::IgnoredAny as serde::de::Deserialize>::deserialize(&mut *self.de)?;
+                        let _value = <serde::de::IgnoredAny as serde::de::Deserialize>::deserialize(&mut *self.de)?;
+                        continue;
+                    }
+                }
             }
-            Some(_byte @ 0x60..=0x7f) if !self.accept_named => {
-                return Err(self.de.error(ErrorCode::WrongStructFormat));
-            }
-            _ => {}
-        };
+            break;
+        }
 
         let value = seed.deserialize(&mut *self.de)?;
         Ok(Some(value))

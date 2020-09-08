@@ -61,6 +61,11 @@ pub trait Read<'de>: private::Sealed {
 
     #[doc(hidden)]
     fn offset(&self) -> u64;
+
+    #[doc(hidden)]
+    fn long_peek(&self, n: usize) -> Result<&[u8]> {
+        unimplemented!()
+    }
 }
 
 #[cfg(feature = "unsealed_read_write")]
@@ -113,6 +118,11 @@ pub trait Read<'de> {
 
     /// Returns the offset from the start of the reader.
     fn offset(&self) -> u64;
+
+    #[doc(hidden)]
+    fn long_peek(&self, n: usize) -> Result<&[u8]> {
+        unimplemented!()
+    }
 }
 
 /// Represents a reader that can return its current position
@@ -402,6 +412,11 @@ impl<'a> Read<'a> for SliceRead<'a> {
 
     fn offset(&self) -> u64 {
         self.index as u64
+    }
+
+    fn long_peek(&self, n: usize) -> Result<&[u8]> {
+        let end = self.end(n)?;
+        Ok(&self.slice[self.index..end])
     }
 }
 

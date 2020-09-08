@@ -144,13 +144,21 @@ mod std_tests {
 
     #[test]
     fn test_object() {
-        let value: error::Result<Value> = de::from_slice(b"\xa5aaaAabaBacaCadaDaeaE");
+        use std::iter::FromIterator;
         let mut object = BTreeMap::new();
         object.insert(Value::Text("a".to_owned()), Value::Text("A".to_owned()));
+        object = BTreeMap::from_iter(vec![(Value::Text("a".to_owned()), Value::Map(object))]);
         object.insert(Value::Text("b".to_owned()), Value::Text("B".to_owned()));
         object.insert(Value::Text("c".to_owned()), Value::Text("C".to_owned()));
         object.insert(Value::Text("d".to_owned()), Value::Text("D".to_owned()));
         object.insert(Value::Text("e".to_owned()), Value::Text("E".to_owned()));
+
+        let v = serde_cbor::to_vec(&object).unwrap();
+
+        let mut de = Deserializer::from_slice(&v);
+        de.whitelist = vec!["b", "a"];
+        let value: error::Result<Value> = serde::de::Deserialize::deserialize(&mut de);
+
         assert_eq!(value.unwrap(), Value::Map(object));
     }
 
